@@ -1,0 +1,16 @@
+
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+*.pyc
+data/index/
+mlruns/
+mlartifacts/
+reports/*.html
+reports/*.json
+reports/*.png
+reports/*.csv
+!reports/.gitkeep
+.dvc/cache/
