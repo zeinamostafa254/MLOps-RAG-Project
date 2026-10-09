@@ -1,0 +1,19 @@
+
+stages:
+  normalize:
+    cmd: python scripts/prepare_corpus.py
+    deps:
+      - data/raw/orig_data.json
+      - scripts/prepare_corpus.py
+    outs:
+      - data/processed/corpus.json
+
+  index:
+    cmd: python scripts/build_index.py
+    deps:
+      - data/processed/corpus.json
+      - scripts/build_index.py
+      - src/config.py
+      - src/rag.py
+    outs:
+      - data/index/chroma
