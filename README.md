@@ -380,4 +380,91 @@ python -m pytest -q
 ruff check .
 ```
 
-Ten passing tests were reported during development. The exact final commit must be retested before submission.
+## 14. Final Verification and Testing
+
+The project underwent testing and verification across its core components, API interface, and development environment.
+
+### Test Results
+
+The following verification activities were performed during development:
+
+| Component | Verification |
+|---|---|
+| Automated tests | 10 passing tests were reported during development using `pytest`. |
+| API health check | The `/health` endpoint returned a healthy status during verification. |
+| FastAPI Swagger UI | The API was accessed and tested through the interactive Swagger UI at `/docs`. |
+| API request validation | Invalid requests were tested against the API's request-validation behavior. |
+| RAG pipeline | Retrieval, generation, and citation behavior were investigated through direct testing. |
+| RAGAS evaluation | A preliminary faithfulness smoke test returned a score of 1.0. |
+| MLflow | Five chunking experiments were conducted and tracked during development. |
+| Code quality | Ruff was included in the project's code-quality workflow. |
+| Continuous integration | A GitHub Actions workflow was implemented for automated project checks. |
+
+### API Verification
+
+The FastAPI application exposes endpoints for health checks, metrics, and question answering. The available routes can be inspected through the automatically generated OpenAPI documentation.
+
+To access the interactive API documentation, start the application and open:
+
+`http://127.0.0.1:8000/docs`
+
+The Swagger UI provides an interactive interface for submitting requests, inspecting responses, and testing API validation without requiring a separate API client.
+
+A healthy `/health` response confirms that the service health check is operational; it does not independently establish that every downstream component is working correctly.
+
+### Verification Scope and Limitations
+
+The results documented here reflect testing performed during development. The reported test-suite results, health checks, experiment runs, and preliminary evaluation should be distinguished from a complete end-to-end acceptance test of the final submitted commit.
+
+The final verification should include:
+
+- Rerunning the complete automated test suite against the final commit.
+- Confirming that `/health` and `/metrics` respond correctly.
+- Submitting valid and invalid requests through Swagger UI.
+- Confirming successful end-to-end retrieval and answer generation.
+- Checking that returned citations correspond to retrieved legal evidence.
+- Verifying that the final GitHub Actions workflow completes successfully.
+- Confirming that the evaluation report, experiment artifacts, and reproducibility instructions are available to reviewers.
+
+These checks provide a reproducible basis for assessing the project's readiness and identifying remaining issues.
+
+---
+
+## 15. Implementation Differences from the Project Handbook
+
+This project follows the main objective of developing an MLOps-enabled, bilingual legal Retrieval-Augmented Generation system. Some implementation choices differ from the workflow described in the original handbook.
+
+The following differences are documented to provide transparency and clarify the scope of the implementation.
+
+| Area | Handbook approach | Project implementation |
+|---|---|---|
+| LLM serving | vLLM-based model serving | Ollama was adopted as an alternative serving approach in the development configuration. |
+| Dataset preparation | Extract legal text from the provided PDF and convert it into structured JSON | The mentor-provided structured JSON dataset was used directly as the primary corpus input, avoiding a separate PDF-to-JSON extraction step in the main preprocessing workflow. |
+| LLM inference | Follow the handbook's specified serving workflow | Cloud-hosted LLM APIs authenticated with API keys were used for the relevant workflows instead of relying exclusively on local model inference. |
+| API testing | Verify the API and its responses | FastAPI's interactive Swagger UI was used to submit requests and inspect API behavior. |
+| Continuous integration | Automate project checks through a CI workflow | GitHub Actions was implemented to automate the configured checks. Its final workflow status should be verified against the submitted commit. |
+| Retrieval and evaluation | Build and evaluate a grounded legal RAG pipeline | Multilingual embeddings, ChromaDB, reranking, MLflow experiments, and preliminary RAGAS evaluation were developed as part of the project. |
+
+### 15.1 LLM Serving: Ollama Instead of vLLM
+
+The development configuration adopted Ollama as an alternative to the vLLM serving approach described in the handbook.
+
+This decision changes the model-serving implementation while preserving the objective of integrating language-model inference into the RAG pipeline. Ollama and vLLM are different serving solutions, and their operational characteristics and configuration requirements are not identical.
+
+Where cloud-hosted inference was used, API credentials and provider configuration were required. Cloud inference and local Ollama inference should be treated as distinct execution paths, and the final configuration should identify which path is active for each workflow.
+
+### 15.2 Dataset Preparation: Direct JSON Input
+
+The project used the structured bilingual JSON dataset supplied by the mentor as its primary input.
+
+The preprocessing workflow focuses on validating the records, normalizing text, preserving legal article identifiers and metadata, and preparing the corpus for indexing.
+
+Consequently, the main implementation does not depend on extracting the entire corpus from the PDF before converting it into JSON. The original PDF remains a separate reference artifact for checking the dataset's content and legal article information.
+
+This difference concerns the source-data preparation workflow; it does not remove the need to validate the completeness and accuracy of the resulting corpus.
+
+### 15.3 Cloud LLM APIs and Inference Configuration
+
+Cloud-hosted LLM APIs authenticated through API keys were used for the relevant model-inference workflows.
+
+This approach differs from relying exclusively on a locally hosted language model. It also introduces configuration and operational considerations such as API credentials, provider availability, rate limits
