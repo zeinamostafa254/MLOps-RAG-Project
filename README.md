@@ -1,160 +1,383 @@
-
 # Egyptian Legal RAG — MLOps Final Project
 
-Arabic/English Retrieval-Augmented Generation over the Egyptian Civil Code.
+**Bilingual Arabic/English Retrieval-Augmented Generation for the Egyptian Civil Code**
 
-## Business problem
+An MLOps project developed as part of the ITI × MLOps MENA Practitioner track, focusing on legal document retrieval, grounded question answering, reproducibility, evaluation, and operational monitoring.
 
-A legal organization needs answers grounded in Egyptian Civil Code articles. A legally useful answer must expose the article citation used to support it; hallucinated legal provisions are unacceptable.
+**Repository:** https://github.com/zeinamostafa254/MLOps-RAG-Project
 
-The supplied `orig_data.json` is already article-structured and bilingual. It contains an `Article N` key, Arabic text, English text, and hierarchical metadata. The project therefore uses a **normalization/validation ingestion stage** instead of pretending that JSON is raw PDF text.
+> **Project status:** Core RAG components, corpus preparation, experiment tracking, and evaluation infrastructure have been developed. See the completion checklist below for the requirements that still need end-to-end verification. This README distinguishes implemented components from work that remains to be validated.
 
-For full Track B provenance, place the original bilingual PDF at:
+## 1. Project Overview
 
-`data/raw/1576751803.pdf`
+Legal question answering requires more than generating a plausible response. Answers should be grounded in the applicable legal text, accompanied by verifiable citations, and designed to avoid unsupported claims.
 
-The handbook requires both PDF and derived JSON to be DVC tracked and `dvc repro` to rebuild the corpus. The supplied JSON is the authoritative ready-to-use dataset; the PDF extractor is included as a reproducibility path, but its output should be compared against the supplied JSON before replacing it.
+This project implements a Retrieval-Augmented Generation (RAG) system for the Egyptian Civil Code. It retrieves relevant legal provisions from a bilingual Arabic/English corpus and uses a language model to generate answers based on the retrieved evidence.
 
-## Architecture
+### Objectives
+
+- Prepare and validate structured Arabic/English legal documents.
+- Retrieve relevant legal provisions using multilingual embeddings.
+- Store and search document representations with ChromaDB.
+- Improve retrieval relevance through reranking.
+- Generate answers using a locally hosted language model.
+- Return legal article citations with generated answers.
+- Track chunking experiments with MLflow.
+- Version data and processing stages with DVC.
+- Evaluate answer quality with RAGAS.
+- Expose an API and develop monitoring and reproducibility workflows.
+
+**Disclaimer:** This project is an educational research prototype, not a substitute for advice from a qualified Egyptian lawyer. Generated answers and citations must be checked against authoritative legal sources.
+
+## 2. Architecture
 
 ```text
-                         ┌─────────────────────┐
-                         │ PDF / supplied JSON  │
-                         └──────────┬──────────┘
-                                    │
-                         normalize + validate
-                                    │
-                                    ▼
-                         data/processed/corpus.json
-                                    │
-                              DVC pipeline
-                                    │
-                                    ▼
-                        article-aware chunking
-                                    │
-                         multilingual embeddings
-                                    │
-                                    ▼
-                              ChromaDB
-                                    │
- question ──► guardrails ──► hybrid retrieval ──► reranker
-                                    │
-                                    ▼
-                               vLLM LLM
-                                    │
-                          grounded answer + citations
-                                    │
-                   ┌────────────────┼────────────────┐
-                   ▼                ▼                ▼
-               RAGAS             Langfuse       Prometheus
-                   │                │                │
-                   ▼                ▼                ▼
-                MLflow          Grafana          alerts
+Bilingual Egyptian Civil Code
+            |
+            v
+Structured JSON Corpus
+            |
+            v
+Normalization and Validation
+            |
+            v
+Article-Aware Chunking
+            |
+            v
+Multilingual E5 Embeddings
+            |
+            v
+        ChromaDB
+            |
+User Question
+     |
+     v
+Input Validation
+     |
+     v
+Vector Retrieval
+     |
+     v
+Reranking
+     |
+     v
+Ollama-Hosted Language Model
+     |
+     v
+Grounded Answer + Article Citations
 ```
 
-## 3-command setup
+Supporting MLOps components include:
+
+- **MLflow:** Experiment tracking and configuration comparison.
+- **DVC:** Data and pipeline versioning.
+- **FastAPI:** HTTP interface for question answering.
+- **RAGAS:** RAG quality evaluation.
+- **Prometheus:** Metrics collection and exposure.
+- **Langfuse:** LLM tracing, where configured and operational.
+- **Grafana:** Monitoring dashboards, where configured and operational.
+- **Docker:** Containerization and service orchestration.
+- **GitHub Actions:** Automated testing and continuous integration, subject to workflow verification.
+
+The diagram describes the intended processing flow. Optional components must be verified against the active configuration before being considered operational.
+
+## 3. Technology Stack
+
+| Component | Technology |
+|---|---|
+| Language | Python |
+| API | FastAPI, Pydantic, Uvicorn |
+| LLM serving in the development configuration | Ollama |
+| Generation model | `qwen2.5:7b` |
+| Embedding model | `intfloat/multilingual-e5-base` |
+| Vector database | ChromaDB |
+| Reranker | `BAAI/bge-reranker-v2-m3` |
+| Experiment tracking | MLflow |
+| Data versioning | DVC |
+| Evaluation | RAGAS |
+| Metrics | Prometheus |
+| LLM tracing | Langfuse integration |
+| Dashboards | Grafana integration |
+| Testing | pytest |
+| Code quality | Ruff |
+| Containerization | Docker and Docker Compose |
+
+Model names and dependency versions should be checked against the final `.env.example`, `pyproject.toml`, and Docker configuration.
+
+### Why Ollama?
+
+The development configuration uses Ollama to run the language model locally. This avoids making vLLM a mandatory part of the default generation path.
+
+The handbook references vLLM for its serving workflow. Using Ollama is therefore a documented implementation deviation, not a claim that the original serving requirement was fulfilled exactly. Any optional vLLM configuration should be identified separately.
+
+## 4. Dataset and Preprocessing
+
+The project uses a mentor-provided, structured JSON dataset containing Arabic and English legal text.
+
+The main preprocessing workflow normalizes and validates the existing JSON corpus. It should not be described as PDF-to-JSON extraction unless that conversion is actually performed by the documented pipeline.
+
+### Preprocessing objectives
+
+- Validate the structure and required fields of each record.
+- Preserve article identifiers and relevant legal metadata.
+- Normalize Arabic text consistently.
+- Identify records with missing Arabic or English text.
+- Preserve repealed-article information rather than silently deleting it.
+- Detect unexplained article-number gaps.
+- Produce a validated corpus for indexing.
+
+During development, the processed corpus contained approximately 1,093 records. The final count must be verified after running the current preprocessing script.
+
+The original bilingual PDF and the supplied JSON should be treated as separate source artifacts until their relationship has been validated. Both should be tracked or made reproducibly accessible as required by the course.
+
+## 5. Retrieval and Generation
+
+The retrieval pipeline is designed to:
+
+1. Accept a legal question.
+2. Encode the question using the configured multilingual embedding model.
+3. Retrieve relevant document chunks from ChromaDB.
+4. Rerank retrieved passages when the reranker is enabled.
+5. Provide the selected evidence to the configured language model.
+6. Generate a response grounded in the supplied context.
+7. Return article-level citations so the user can verify the evidence.
+
+The development configuration uses a chunk size of 1,200 and an overlap of 150 characters as the baseline experiment. Other configurations were explored through MLflow.
+
+The implementation should return citations that identify legal articles, rather than exposing only internal vector IDs. Unsupported questions should be handled conservatively, with no invented legal citations.
+
+## 6. API
+
+The application uses FastAPI to expose the RAG functionality.
+
+The expected endpoints are:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/health` | Report service health |
+| GET | `/metrics` | Expose Prometheus metrics |
+| POST | `/ask` | Answer a legal question |
+| POST | `/ask/stream` | Stream a response using the implemented streaming format |
+
+Verify these routes using the current application and its OpenAPI schema at `/docs`.
+
+### Example request
+
+```json
+{
+  "question": "What does the Civil Code say about abuse of rights?"
+}
+```
+
+### Intended response structure
+
+```json
+{
+  "answer": "A response grounded in the retrieved legal provisions.",
+  "sources": [
+    "Egyptian Civil Code, Article 5"
+  ]
+}
+```
+
+The response above is illustrative and is not a verified legal answer from the running system. The exact field names and citation structure must match the implementation.
+
+### API verification
+
+Start the service:
 
 ```bash
-pip install -e .
+python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+Open:
+
+- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:8000/metrics`
+
+Test `/ask` with a real question. Also test that invalid or empty requests are rejected with HTTP 422, if that is the API's specified validation behavior.
+
+A healthy health-check response does not establish that the complete RAG pipeline is operational. Generation, retrieval, and citation behavior must be tested independently.
+
+## 7. Installation and Execution
+
+### Prerequisites
+
+- Python 3.11 or 3.12.
+- Git.
+- Ollama installed and running.
+- Sufficient memory and disk space for the configured embedding model, reranker, and LLM.
+- Docker Desktop for the containerized workflow.
+
+### Install the project
+
+From the repository root:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
+
+Create a local `.env` from `.env.example` and configure the required model, service URLs, and other settings.
+
+Never commit API keys, passwords, access tokens, or credential backups.
+
+### Start the generation model
+
+For the development configuration:
+
+```bash
+ollama pull qwen2.5:7b
+ollama list
+```
+
+Ensure that the model name matches the active project configuration.
+
+### Prepare the corpus and index
+
+```bash
 python scripts/prepare_corpus.py
-uvicorn src.api:app --host 0.0.0.0 --port 8000
+python scripts/build_index.py
 ```
 
-For Docker:
+These commands must be checked against the actual scripts in the final repository.
+
+### Run the API
 
 ```bash
+python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+### Docker
+
+Validate the configuration before starting services:
+
+```bash
+docker compose config
 docker compose up --build
-curl http://localhost:8000/health
 ```
 
-## API
+The reviewer must be able to follow the documented setup without relying on undocumented local files or services.
 
-`POST /ask`
+## 8. MLOps: MLflow Experiment Tracking
 
-```json
-{
-  "question": "ما هي شروط استعمال الحق بصورة غير مشروعة؟"
-}
-```
+The project explored different chunk sizes and overlaps to study their impact on the retrieval pipeline.
 
-Response:
+| Experiment | Chunk size | Overlap |
+|---|---:|---:|
+| Small | 800 | 100 |
+| Medium-small | 1000 | 100 |
+| Baseline | 1200 | 150 |
+| Large | 1500 | 200 |
+| Very large | 1800 | 250 |
 
-```json
-{
-  "answer": "...",
-  "sources": ["Egyptian Civil Code, Article 5"]
-}
-```
+Five experiments were reported during development. Their final metrics, artifacts, and run statuses must be verified in the MLflow tracking store.
 
-`GET /health` returns the service status and number of indexed chunks.
+The experiment-tracking workflow should record:
 
-`POST /ask/stream` returns newline-delimited JSON for progressive command-line consumption.
+- Chunk size and overlap.
+- Embedding and generation model identifiers.
+- Retrieval and reranking configuration.
+- Relevant evaluation metrics.
+- Execution artifacts and configuration.
+- Results used to select the final configuration.
 
-## Evaluation
+The handbook also asks for best-model registry and promotion evidence. Confirm whether the selected configuration has been registered and whether the required model lifecycle workflow is implemented.
+
+## 9. Data Versioning and Reproducibility
+
+DVC is used to define and manage the corpus preparation and indexing pipeline.
+
+The documented workflow includes:
+
+1. Normalizing and validating the structured source data.
+2. Producing the processed corpus.
+3. Building the vector index.
 
 Run:
 
 ```bash
-python evaluation/build_questions.py
-python evaluation/run_ragas.py
+dvc status
+dvc repro
+dvc status
 ```
 
-The evaluation script targets at least 50 questions and records all four RAGAS metrics:
+A reproducible pipeline requires all necessary inputs, dependencies, and tracked artifacts to be accessible. If a DVC remote is needed, its setup instructions must be documented.
 
-- faithfulness
-- answer relevancy
-- context precision
-- context recall
+A successful `dvc repro` is stronger evidence than simply having a `dvc.yaml` file in the repository.
 
-The CI quality gate fails if the 20-question smoke evaluation has faithfulness below `0.75`.
+## 10. Evaluation with RAGAS
 
-## MLOps commands
+RAG evaluation should measure whether the system retrieves appropriate legal evidence and generates answers that remain grounded in that evidence.
+
+The main evaluation metrics are:
+
+| Metric | Purpose |
+|---|---|
+| Faithfulness | Measures whether generated claims are supported by the retrieved context |
+| Answer relevancy | Measures whether the response addresses the user's question |
+| Context precision | Measures the relevance of retrieved context |
+| Context recall | Measures whether the retrieved evidence covers the reference answer |
+
+The handbook requires evaluation on at least 50 questions.
+
+A smoke test using RAGAS and Ollama was reported during development, with a faithfulness score of 1.0. This is a preliminary result, not evidence of full-system accuracy or completion of the 50-question evaluation.
+
+The final evaluation report should document:
+
+- Number of questions evaluated.
+- Arabic and English coverage.
+- Reference answers and expected article citations.
+- Actual scores for each metric.
+- Model and retrieval configuration.
+- Known failures and limitations.
+
+Results should be saved as a versioned artifact, such as `reports/ragas_evaluation.json` or `reports/ragas_evaluation.csv`.
+
+## 11. Monitoring and Observability
+
+The project includes a Prometheus metrics endpoint. Additional monitoring objectives include:
+
+- Request counts and error rates.
+- Request latency.
+- RAGAS faithfulness tracking.
+- Query-embedding drift.
+- Token usage and estimated cost.
+- Langfuse request traces.
+- PII guardrails.
+- Grafana dashboards and alert thresholds.
+
+These objectives must be verified against the actual implementation.
+
+For example, exposing `/metrics` does not automatically mean that Grafana is connected or that token cost is being measured. The final submission should include a screenshot or report demonstrating the monitoring components that actually run.
+
+## 12. Optimization and Performance
+
+The handbook expects a measured comparison of the original and optimized system, including generation quantization, reranking changes, evaluation quality, and latency.
+
+For this project, optimization claims should be made only after running the corresponding implementation and benchmark.
+
+A useful benchmark report should include:
+
+| Field | What to record |
+|---|---|
+| Configuration | Model, chunking, retrieval and reranking settings |
+| Evaluation size | Number of questions tested |
+| Quality | Available RAGAS metrics |
+| Latency | Mean and p95 latency |
+| Model footprint | Model size and memory usage, if measured |
+| Environment | Hardware, operating system and relevant versions |
+
+The handbook references AWQ 4-bit quantization and a before/after RAGAS comparison. If these have not been implemented and measured in the selected Ollama workflow, they must remain explicitly identified as outstanding rather than completed.
+
+## 13. Testing and Code Quality
+
+Run the tests from the configured project environment:
 
 ```bash
-dvc repro
-mlflow ui --port 5000
-pytest -q
+python -m pytest -q
 ruff check .
-locust -f loadtest/locustfile.py --host http://localhost:8000
 ```
 
-## Optimization
-
-The optimization module compares:
-
-1. baseline generator
-2. AWQ 4-bit generator
-3. baseline retriever
-4. reranked retriever
-
-Record actual results in `reports/benchmark.csv`. Never fabricate speed, memory, or quality improvements.
-
-## Monitoring
-
-- RAGAS faithfulness
-- query-embedding cosine drift
-- token usage / estimated cost
-- request latency
-- Langfuse trace per request
-- PII guardrail
-- Prometheus metrics
-- Grafana dashboard and faithfulness alert
-
-## Important data note
-
-The handbook asks for PDF → structured JSON conversion. Your supplied JSON already contains article-level Arabic/English records, so this repository does not claim that the JSON was produced by our extractor. If you add the original PDF, run `scripts/extract_pdf.py`, compare the result with `data/processed/corpus.json`, and document discrepancies.
-
-## Rubric evidence map
-
-| Rubric | Evidence |
-|---|---|
-| 01 Code & packaging | `pyproject.toml`, `src/`, typed classes |
-| 02 API | `src/api.py`, Pydantic validation, `/health`, `/ask` |
-| 03 Docker | `Dockerfile`, `docker-compose.yml`, README |
-| 04 MLflow | `src/mlflow_tracking.py`, `scripts/run_chunk_experiments.py` |
-| 05 DVC | `dvc.yaml`, `dvc.yaml` stages, tracked data |
-| 06 CI/CD | `.github/workflows/ci.yml`, quality gate |
-| 07 Production serving | `src/bento_service.py`, `vllm` service, Locust |
-| 08 Monitoring | RAGAS, Langfuse, Prometheus, Grafana |
-| 09 Peer review | complete manually after assignment |
-| 10 README/architecture | this README + `docs/architecture.md` |
+Ten passing tests were reported during development. The exact final commit must be retested before submission.
