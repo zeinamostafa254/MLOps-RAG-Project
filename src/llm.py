@@ -1,5 +1,6 @@
 
 import httpx
+from opentelemetry import context
 from .config import get_settings
 
 
@@ -8,10 +9,14 @@ class LLMClient:
         self.settings = get_settings()
 
     async def generate(self, question: str, context: list[dict]) -> str:
+        # Keep the prompt manageable for local Ollama inference.
+        selected_context = context[:4]
+
         sources = "\n\n".join(
-            f"[{h['metadata']['citation']}]\n{h['metadata']['text_ar']}"
-            for h in context
-        )
+            f"[{h['metadata']['citation']}]\n"
+            f"{h['metadata']['text_ar'][:2500]}"
+            for h in selected_context
+)
         prompt = f"""
 You are an Egyptian legal-document QA assistant.
 Answer ONLY from the supplied context.
@@ -37,7 +42,7 @@ Context:
             "max_tokens": 700,
         }
 
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             response = await client.post(
                 f"{self.settings.vllm_base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.settings.vllm_api_key}"},

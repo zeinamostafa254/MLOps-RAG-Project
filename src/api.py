@@ -6,7 +6,13 @@ from .rag import LegalRAG
 from .schemas import AskRequest, AskResponse, HealthResponse
 from .observability import metrics_response, observe_request
 
+import logging
+from fastapi import HTTPException
+
+
+
 app = FastAPI(title="Egyptian Legal RAG", version="0.1.0")
+logger = logging.getLogger(__name__)
 rag = None
 
 
@@ -32,6 +38,7 @@ async def metrics() -> Response:
     return Response(metrics_response(), media_type="text/plain")
 
 
+
 @app.post("/ask", response_model=AskResponse)
 async def ask(request: AskRequest) -> AskResponse:
     async with observe_request():
@@ -39,9 +46,18 @@ async def ask(request: AskRequest) -> AskResponse:
             result = await get_rag().ask(request.question)
             return AskResponse(**result)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
         except Exception as exc:
-            raise HTTPException(status_code=500, detail="RAG service error") from exc
+            logger.exception("RAG /ask request failed")
+            raise HTTPException(
+                status_code=500,
+                detail="RAG service error",
+            ) from exc
+
+
 
 
 @app.post("/ask/stream")
